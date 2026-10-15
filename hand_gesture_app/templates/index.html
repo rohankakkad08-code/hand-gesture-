@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Hand Gesture Recognition</title>
+  <style>
+    /* ── Reset & Root ──────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0a0e1a;
+      --surface:  #111827;
+      --card:     #1a2235;
+      --border:   #1e2d45;
+      --accent:   #00ffe0;
+      --accent2:  #7c3aed;
+      --text:     #e2e8f0;
+      --muted:    #64748b;
+      --green:    #22c55e;
+      --red:      #ef4444;
+      --radius:   16px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated star / particle background ───────────────────────── */
+    .bg-particles {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse at 20% 50%, rgba(0,255,224,.04) 0%, transparent 55%),
+        radial-gradient(ellipse at 80% 20%, rgba(124,58,237,.05) 0%, transparent 55%);
+      animation: bgPulse 8s ease-in-out infinite alternate;
+    }
+    @keyframes bgPulse {
+      from { opacity: .6; }
+      to   { opacity: 1;  }
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────── */
+    .page { position: relative; z-index: 1; padding: 24px 20px 40px; max-width: 1280px; margin: auto; }
+
+    /* ── Header ─────────────────────────────────────────────────────── */
+    header {
+      text-align: center; margin-bottom: 32px;
+    }
+    .header-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(0,255,224,.07);
+      border: 1px solid rgba(0,255,224,.2);
+      border-radius: 999px; padding: 4px 16px; font-size: 12px;
+      color: var(--accent); letter-spacing: .08em; text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .header-badge span { width: 6px; height: 6px; background: var(--accent);
+      border-radius: 50%; animation: blink 1.4s infinite; }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.2;} }
+
+    h1 {
+      font-size: clamp(1.8rem, 4vw, 3rem);
+      font-weight: 800; letter-spacing: -.03em;
+      background: linear-gradient(120deg, #00ffe0 0%, #7c3aed 60%, #ff6bcb 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .subtitle { color: var(--muted); margin-top: 8px; font-size: 1rem; }
+
+    /* ── Main grid ──────────────────────────────────────────────────── */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 24px;
+    }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+    /* ── Video card ──────────────────────────────────────────────────── */
+    .video-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      position: relative;
+    }
+    .video-card__header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      background: rgba(0,0,0,.2);
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: blink 1.4s infinite; }
+    .video-card__title { font-size: .85rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+
+    .video-wrap {
+      position: relative;
+      background: #000;
+    }
+    #video-feed {
+      display: block; width: 100%; height: auto;
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+
+    /* Scan-line overlay */
+    .scanline {
+      position: absolute; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(
+        transparent, transparent 2px,
+        rgba(0,255,224,.02) 2px, rgba(0,255,224,.02) 4px
+      );
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+    /* Corner HUD brackets */
+    .hud-corner {
+      position: absolute; width: 28px; height: 28px;
+      border-color: var(--accent); border-style: solid; opacity: .7;
+    }
+    .hud-tl { top: 8px; left: 8px;  border-width: 2px 0 0 2px; }
+    .hud-tr { top: 8px; right: 8px; border-width: 2px 2px 0 0; }
+    .hud-bl { bottom: 8px; left: 8px;  border-width: 0 0 2px 2px; }
+    .hud-br { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; }
+
+    /* ── Right panel ──────────────────────────────────────────────────── */
+    .panel { display: flex; flex-direction: column; gap: 20px; }
+
+    /* ── Gesture card ─────────────────────────────────────────────────── */
+    .gesture-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px 24px;
+      text-align: center;
+      transition: border-color .4s;
+      position: relative; overflow: hidden;
+    }
+    .gesture-card::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 50% 0%, var(--glow-color, rgba(0,255,224,.1)), transparent 70%);
+      transition: background .4s;
+    }
+    .gesture-emoji {
+      font-size: 5rem; line-height: 1;
+      display: block; margin-bottom: 14px;
+      animation: pop .3s ease;
+      filter: drop-shadow(0 0 16px var(--glow-color, #00ffe0));
+    }
+    @keyframes pop {
+      0%   { transform: scale(.5); opacity: 0; }
+      70%  { transform: scale(1.1); }
+      100% { transform: scale(1);  opacity: 1; }
+    }
+    .gesture-name {
+      font-size: 1.5rem; font-weight: 700;
+      color: var(--text); margin-bottom: 6px;
+    }
+    .gesture-conf {
+      font-size: .8rem; color: var(--muted);
+    }
+
+    /* Confidence bar */
+    .conf-bar {
+      margin-top: 16px;
+      height: 6px; background: var(--border);
+      border-radius: 99px; overflow: hidden;
+    }
+    .conf-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 99px;
+      transition: width .5s ease;
+      width: 0%;
+    }
+
+    /* ── Stats card ──────────────────────────────────────────────────── */
+    .stats-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .stats-title {
+      font-size: .75rem; text-transform: uppercase; letter-spacing: .1em;
+      color: var(--muted); margin-bottom: 16px;
+    }
+    .stat-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
+    }
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { font-size: .85rem; color: var(--muted); }
+    .stat-value { font-size: .9rem; font-weight: 600; color: var(--text); }
+
+    /* ── Gesture history pills ───────────────────────────────────────── */
+    .history-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .history-title {
+      font-size: .75rem; text-transform: uppercase; letter-spacing: .1em;
+      color: var(--muted); margin-bottom: 12px;
+    }
+    .history-list {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .history-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 99px; padding: 4px 12px;
+      font-size: .78rem; color: var(--text);
+      animation: slideIn .3s ease;
+    }
+    @keyframes slideIn {
+      from { transform: translateY(-8px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+
+    /* ── Gesture reference grid ──────────────────────────────────────── */
+    .ref-section { margin-top: 32px; }
+    .ref-section h2 {
+      font-size: 1.1rem; font-weight: 700; margin-bottom: 20px;
+      color: var(--text);
+    }
+    .gesture-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 14px;
+    }
+    .gesture-tile {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 12px;
+      text-align: center;
+      transition: transform .2s, border-color .2s, box-shadow .2s;
+      cursor: default;
+    }
+    .gesture-tile:hover {
+      transform: translateY(-4px);
+      border-color: var(--accent);
+      box-shadow: 0 8px 28px rgba(0,255,224,.12);
+    }
+    .gesture-tile__emoji { font-size: 2.4rem; display: block; margin-bottom: 8px; }
+    .gesture-tile__name  { font-size: .75rem; color: var(--muted); font-weight: 500; }
+
+    /* ── Footer ──────────────────────────────────────────────────────── */
+    footer {
+      margin-top: 40px; text-align: center;
+      font-size: .78rem; color: var(--muted);
+      padding-top: 20px; border-top: 1px solid var(--border);
+    }
+
+    /* ── Status indicator ────────────────────────────────────────────── */
+    .status-bar {
+      display: flex; align-items: center; gap: 8px;
+      font-size: .78rem; color: var(--muted); margin-top: 10px;
+      justify-content: center;
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green); animation: blink 1s infinite;
+    }
+    .status-dot.offline { background: var(--red); animation: none; }
+  </style>
+</head>
+<body>
+<div class="bg-particles"></div>
+
+<div class="page">
+
+  <!-- Header -->
+  <header>
+    <div class="header-badge"><span></span> Live Recognition Active</div>
+    <h1>Hand Gesture Recognition</h1>
+    <p class="subtitle">Real-time AI-powered gesture detection using MediaPipe &amp; OpenCV</p>
+    <div class="status-bar">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Connecting to camera…</span>
+    </div>
+  </header>
+
+  <!-- Main grid -->
+  <div class="grid">
+
+    <!-- Live video -->
+    <div class="video-card">
+      <div class="video-card__header">
+        <span class="dot"></span>
+        <span class="video-card__title">Live Camera Feed</span>
+      </div>
+      <div class="video-wrap">
+        <img id="video-feed" src="/video_feed" alt="Camera feed" />
+        <div class="scanline"></div>
+        <div class="hud-corner hud-tl"></div>
+        <div class="hud-corner hud-tr"></div>
+        <div class="hud-corner hud-bl"></div>
+        <div class="hud-corner hud-br"></div>
+      </div>
+    </div>
+
+    <!-- Right panel -->
+    <div class="panel">
+
+      <!-- Current gesture -->
+      <div class="gesture-card" id="gesture-card">
+        <span class="gesture-emoji" id="gesture-emoji">✋</span>
+        <div class="gesture-name" id="gesture-name">Waiting…</div>
+        <div class="gesture-conf" id="gesture-conf">Show your hand to the camera</div>
+        <div class="conf-bar"><div class="conf-fill" id="conf-fill"></div></div>
+      </div>
+
+      <!-- Live stats -->
+      <div class="stats-card">
+        <div class="stats-title">📊 Session Stats</div>
+        <div class="stat-row">
+          <span class="stat-label">Gestures detected</span>
+          <span class="stat-value" id="stat-count">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Most frequent</span>
+          <span class="stat-value" id="stat-top">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Current gesture</span>
+          <span class="stat-value" id="stat-current">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">FPS (poll rate)</span>
+          <span class="stat-value" id="stat-fps">—</span>
+        </div>
+      </div>
+
+      <!-- History -->
+      <div class="history-card">
+        <div class="history-title">⏱ Recent Gestures</div>
+        <div class="history-list" id="history-list">
+          <span style="color:var(--muted); font-size:.8rem;">No gestures yet…</span>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /grid -->
+
+  <!-- Gesture reference -->
+  <div class="ref-section">
+    <h2>🎯 Supported Gestures</h2>
+    <div class="gesture-grid">
+      <div class="gesture-tile"><span class="gesture-tile__emoji">👍</span><div class="gesture-tile__name">Thumbs Up</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">👎</span><div class="gesture-tile__name">Thumbs Down</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">✊</span><div class="gesture-tile__name">Fist</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">🖐</span><div class="gesture-tile__name">Open Hand</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">✌️</span><div class="gesture-tile__name">Peace</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">☝️</span><div class="gesture-tile__name">Pointing</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">🤘</span><div class="gesture-tile__name">Rock On</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">👌</span><div class="gesture-tile__name">OK</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">👋</span><div class="gesture-tile__name">Wave</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">🤚</span><div class="gesture-tile__name">Front Hand</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">🫲</span><div class="gesture-tile__name">Back Hand</div></div>
+      <div class="gesture-tile"><span class="gesture-tile__emoji">3️⃣</span><div class="gesture-tile__name">Three Fingers</div></div>
+    </div>
+  </div>
+
+  <footer>Built with MediaPipe · OpenCV · Flask &nbsp;|&nbsp; Hand Gesture Recognition AI</footer>
+</div><!-- /page -->
+
+<script>
+  // ── State ─────────────────────────────────────────────────────────────────
+  let prevGesture  = "";
+  let count        = 0;
+  let freq         = {};
+  let history      = [];
+  const MAX_HIST   = 12;
+  let lastTime     = Date.now();
+  let pollCount    = 0;
+
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const emojiEl   = document.getElementById("gesture-emoji");
+  const nameEl    = document.getElementById("gesture-name");
+  const confEl    = document.getElementById("gesture-conf");
+  const fillEl    = document.getElementById("conf-fill");
+  const cardEl    = document.getElementById("gesture-card");
+  const histEl    = document.getElementById("history-list");
+  const statCount = document.getElementById("stat-count");
+  const statTop   = document.getElementById("stat-top");
+  const statCur   = document.getElementById("stat-current");
+  const statFps   = document.getElementById("stat-fps");
+  const statusDot = document.getElementById("status-dot");
+  const statusTxt = document.getElementById("status-text");
+
+  // ── Poll gesture endpoint ─────────────────────────────────────────────────
+  async function pollGesture() {
+    try {
+      const res  = await fetch("/gesture");
+      const data = await res.json();
+
+      // FPS estimate
+      pollCount++;
+      const now = Date.now();
+      if (now - lastTime >= 1000) {
+        statFps.textContent = pollCount + " Hz";
+        pollCount = 0;
+        lastTime  = now;
+      }
+
+      // Status
+      statusDot.classList.remove("offline");
+      statusTxt.textContent = "Camera connected — live detection running";
+
+      // Update card only when gesture changes
+      if (data.name !== prevGesture) {
+        // Animate emoji pop
+        emojiEl.style.animation = "none";
+        emojiEl.offsetHeight;          // reflow
+        emojiEl.style.animation = "pop .3s ease";
+
+        emojiEl.textContent = data.emoji;
+        nameEl.textContent  = data.name;
+        confEl.textContent  = data.confidence > 0
+          ? `Confidence: ${data.confidence}%`
+          : "Show your hand to the camera";
+
+        // Glow / border colour
+        cardEl.style.borderColor   = data.color;
+        cardEl.style.setProperty("--glow-color", data.color + "33");
+        emojiEl.style.filter       = `drop-shadow(0 0 20px ${data.color})`;
+        fillEl.style.width         = data.confidence + "%";
+
+        // Stats
+        if (data.confidence > 0 && data.name !== "No Hand Detected") {
+          count++;
+          freq[data.name] = (freq[data.name] || 0) + 1;
+          statCount.textContent = count;
+
+          const top = Object.entries(freq).sort((a,b) => b[1]-a[1])[0];
+          if (top) statTop.textContent = top[0];
+
+          // History
+          history.unshift({ name: data.name, emoji: data.emoji, color: data.color });
+          if (history.length > MAX_HIST) history.pop();
+          renderHistory();
+        }
+
+        statCur.textContent = data.name;
+        prevGesture = data.name;
+      }
+    } catch(e) {
+      statusDot.classList.add("offline");
+      statusTxt.textContent = "Connection error — retrying…";
+    }
+  }
+
+  function renderHistory() {
+    if (history.length === 0) return;
+    histEl.innerHTML = history
+      .map(h => `<span class="history-pill" style="border-color:${h.color}55">
+        <span>${h.emoji}</span><span style="color:${h.color}">${h.name}</span>
+      </span>`)
+      .join("");
+  }
+
+  // Poll at 15 Hz
+  setInterval(pollGesture, 67);
+  pollGesture();
+</script>
+</body>
+</html>
